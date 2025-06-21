@@ -1,23 +1,26 @@
 from tree_sitter import Language, Parser
 from pathlib import Path
-import mmap, collections, os, re, shutil, random, string
-import nix
+import collections, json, random, re, shutil, string, subprocess, tree_sitter_nix
 
-NIX_LANGUAGE = Language(
-    os.environ["NIX_TREE_SITTER"],
-    "nix",
-)
+# Because tree_sitter_nix.language() returns an int,
+# Language(tree_sitter_nix.language()) is deprecated.
+# But there's no way around this for now, at least until
+# https://github.com/nix-community/tree-sitter-nix/issues/153 is done.
+# (Then tree_sitter_nix.language() will return an object, which is not deprecated.)
+parser = Parser(Language(tree_sitter_nix.language()))
 
-parser = Parser()
-parser.set_language(NIX_LANGUAGE)
 
-# These are packages that are failing (or may fail) but haven't known why
-# There's a `res.foo`, what is `res`?
 dislike_packages = {
-    "jing-trang",
+    # These are packages that are failing (or may fail) but haven't known why
+    # There's a `res.foo`, what is `res`?
     "pcre",
     "espeak-ng",
-    "faust2",
+    # Added 2025-10-04 by mdaniels5757: nixpkgs-vet failure
+    # Because pkgs/by-name/gn/gnumake exists, the attribute `pkgs.gnumake` must be defined like
+    #     gnumake = callPackage ./../../by-name/gn/gnumake/package.nix { /* ... */ };
+    # However, in this PR, it isn't defined that way. See the definition in pkgs/stdenv/linux/default.nix:919
+    #     gnumake = super.gnumake.override { inBootstrap = false; };
+    "gnumake",
 }
 
 nix_ref = {}
@@ -131,9 +134,9 @@ def can_migrate(name, path):
                     return False
                 if subpath in nix_ref:
                     for ref in nix_ref[subpath]:
-                    # No reference to files outside of path
-                    # we also don't want any file to reference back to default.nix
-                    # including itself, since it will be changed to package.nix later
+                        # No reference to files outside of path
+                        # we also don't want any file to reference back to default.nix
+                        # including itself, since it will be changed to package.nix later
                         if path not in ref.parents or ref == path / "default.nix":
                             return False
                 node = parser.parse(subpath.read_bytes()).root_node
@@ -195,10 +198,24 @@ def try_eval_by_name(packages_list):
             """
         eval_string += "]"
         try:
-            eval_same += nix.eval(f"{eval_base} {eval_string}")
-        except nix.NixError as e:
-            print("eval error")
-            print(e)
+            completed_process = subprocess.run(
+                [
+                    "nix",
+                    "eval",
+                    "--json",
+                    "--impure",
+                    "--expr",
+                    f"{eval_base} {eval_string}",
+                ],
+                capture_output=True,
+                check=True,
+                text=True,
+            )
+            eval_same += json.loads(completed_process.stdout)
+        except subprocess.CalledProcessError as e:
+            print("Eval Error:", e)
+            print("Eval Stdout:", e.stdout)
+            print("Eval Stderr:", e.stderr)
             continue  # We can't deal with this easily
 
     shutil.rmtree(temp_path)
@@ -260,17 +277,28 @@ def migrate():
                 != "path_expression"  # ../foo.nix
                 or len(right_expr.children[0].children[1].children)
                 != 1  # no path interpolation
-                or str(right_expr.children[0].children[0].text, encoding="utf8")
-                != "callPackage"
+                or (
+                    (
+                        right_expr.children[0].children[0].text is not None
+                    )  # Appease pylance
+                    and (
+                        str(right_expr.children[0].children[0].text, encoding="utf8")
+                        != "callPackage"
+                    )  # Not using callPackage
+                )
             ):
                 continue
         except IndexError:
             continue
         # path to definition
+        if right_expr.children[0].children[1].text is None:  # Appease pylance
+            continue
         relpath = Path(str(right_expr.children[0].children[1].text, encoding="utf8"))
         path = (all_packages_path / "../" / relpath).resolve()
         # someone is calling a path twice, and we obviously don't like it
         if path in dup_paths:
+            continue
+        if binding.children[0].text is None:  # Appease pylance
             continue
         name = str(binding.children[0].text, encoding="utf8")
         if name in dislike_packages:

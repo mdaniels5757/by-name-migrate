@@ -231,13 +231,15 @@ def migrate():
     ap_lines = all_packages_path.open("r").readlines()
     ap_top = parser.parse(all_packages_path.read_bytes()).root_node
     ap_node = (
-        ap_top.children[1]  # `{ lib, `... function, 0 is comment
-        .children[2]  # `res:` function
-        .children[2]  # `pkgs:` function
-        .children[2]  # `super:` function
-        .children[2]  # `with pkgs;`
-        .children[3]  # main attrset
-        .children[-2]  # bindings
+        ap_top        # root
+        .children[1]  # `{ lib, `... function expression, 0 is comment
+        .children[2]  # function body, which is a let expression
+        .children[4]  # let expression body, which is the `res:` function expression
+        .children[2]  # `pkgs:` function expression
+        .children[2]  # `super:` function expression
+        .children[2]  # `with pkgs;` expression
+        .children[3]  # with expression body, which is an attrset expression
+        .children[-2] # bindings
     )
     assert ap_node.type == "binding_set"
     paths = [

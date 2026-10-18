@@ -145,7 +145,7 @@ def can_migrate(name, path):
                     return False
             else:
                 # may be referencing default.nix in another form, skip anyway
-                if "default.nix" in subpath.read_text():
+                if b"default.nix" in subpath.read_bytes():
                     return False
         return True
     # TODO: support migrating files

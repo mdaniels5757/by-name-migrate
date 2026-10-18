@@ -98,23 +98,28 @@ def has_update_script_path(node):
 def can_migrate(name, path):
     if path.is_dir():
         if not (path / "default.nix").is_file():
+            print(f"not migrating {name}: {path}/default.nix does not exist")
             return False
         # function??
         if len(name) < 2 or by_name_restrict.match(name) == None:
+            print(f"not migrating {name}: len(name) < 2 or by_name_restrict.match(name) == None")
             return False
         # is this possible (since we have all_packages.nix)?
         if path not in nix_ref_rev:
+            print(f"not migrating {name}: {path} not in nix_ref_rev")
             return False
         # path itself referenced by other files outside of path
         # except all-packages.nix
         for rev in nix_ref_rev[path]:
             if rev != all_packages_path and path not in rev.parents:
+                print(f"not migrating {name}: {path} is referenced by {rev}")
                 return False
         for subpath in path.rglob("*"):
             # Not referenced outside of path
             if subpath in nix_ref_rev:
                 for rev in nix_ref_rev[subpath]:
                     if path not in rev.parents:
+                        print(f"not migrating {name}: {subpath} is referenced by {rev}")
                         return False
             if not subpath.is_file():
                 continue
@@ -122,6 +127,7 @@ def can_migrate(name, path):
                 # Not containing paths that nixpkgs-vet doesn't like
                 # like /foo/bar or <nixpkgs/...> or something inexistent
                 if subpath in with_invalid_path:
+                    print(f"not migrating {name}: {subpath} contains invalid path")
                     return False
                 if subpath in nix_ref:
                     for ref in nix_ref[subpath]:
@@ -129,18 +135,22 @@ def can_migrate(name, path):
                         # we also don't want any file to reference back to default.nix
                         # including itself, since it will be changed to package.nix later
                         if path not in ref.parents or ref == path / "default.nix":
+                            print(f"not migrating {name}: {path} is referenced by {ref}")
                             return False
                 node = parser.parse(subpath.read_bytes()).root_node
                 # No custom update script, thanks
                 if has_update_script_path(node):
+                    print(f"not migrating {name}: contains update script")
                     return False
             else:
                 # may be referencing default.nix in another form, skip anyway
                 if b"default.nix" in subpath.read_bytes():
+                    print(f"not migrating {name}: may reference default.nix")
                     return False
         return True
     # TODO: support migrating files
     else:
+        print(f"not migrating {name}: {path} is not a directory")
         return False
 
 

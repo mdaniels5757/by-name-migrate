@@ -148,9 +148,29 @@ def can_migrate(name, path):
                     print(f"not migrating {name}: may reference default.nix")
                     return False
         return True
-    # TODO: support migrating files
+    elif path.is_file():
+        if len(name) < 2 or by_name_restrict.match(name) == None:
+            print(f"not migrating {name}: len(name) < 2 or by_name_restrict.match(name) == None")
+            return False
+        if path not in nix_ref_rev:
+            print(f"not migrating {name}: {path} not in nix_ref_rev")
+            return False
+        for rev in nix_ref_rev[path]:
+            if rev != all_packages_path:
+                print(f"not migrating {name}: {path} is referenced by {rev}")
+                return False
+        if path in with_invalid_path:
+            print(f"not migrating {name}: {path} contains invalid path")
+            return False
+        if nix_ref.get(path):
+            print(f"not migrating {name}: {path} references other paths")
+            return False
+        if has_update_script_path(parser.parse(path.read_bytes()).root_node):
+            print(f"not migrating {name}: contains update script")
+            return False
+        return True
     else:
-        print(f"not migrating {name}: {path} is not a directory")
+        print(f"not migrating {name}: {path} is not a directory or a file")
         return False
 
 
@@ -158,16 +178,19 @@ def try_eval_by_name(packages_list):
     new_packages_list = []
     for pkg in packages_list:
         name, path, line = pkg
-        # TODO: support migrating files
         # separate files copied there
         dest = (
             temp_path
             / "".join(random.choices(string.ascii_lowercase, k=10))
             / get_by_name(name)
         )
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(path, dest)
-        (dest / "default.nix").replace(dest / "package.nix")
+        if path.is_file():
+            dest.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, dest / "package.nix")
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(path, dest)
+            (dest / "default.nix").replace(dest / "package.nix")
         new_packages_list.append((name, dest / "package.nix"))
 
     eval_base = f"""
@@ -312,11 +335,14 @@ def migrate():
 
     for pkg in move_packages:
         name, path, line = pkg
-        # TODO: support migrating files
         dest = nixpkgs_path / get_by_name(name)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        path.replace(dest)
-        (dest / "default.nix").replace(dest / "package.nix")
+        if path.is_file():
+            dest.mkdir(parents=True, exist_ok=True)
+            path.replace(dest / "package.nix")
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            path.replace(dest)
+            (dest / "default.nix").replace(dest / "package.nix")
 
     remove_lines = [pkg[2] for pkg in move_packages]
 

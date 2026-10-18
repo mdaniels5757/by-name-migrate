@@ -9,18 +9,9 @@ import collections, json, random, re, shutil, string, subprocess, tree_sitter_ni
 # (Then tree_sitter_nix.language() will return an object, which is not deprecated.)
 parser = Parser(Language(tree_sitter_nix.language()))
 
-
+# These are packages that are failing
 dislike_packages = {
-    # These are packages that are failing (or may fail) but haven't known why
-    # There's a `res.foo`, what is `res`?
-    "pcre",
-    "espeak-ng",
-    # Added 2025-10-04 by mdaniels5757: nixpkgs-vet failure
-    # Because pkgs/by-name/gn/gnumake exists, the attribute `pkgs.gnumake` must be defined like
-    #     gnumake = callPackage ./../../by-name/gn/gnumake/package.nix { /* ... */ };
-    # However, in this PR, it isn't defined that way. See the definition in pkgs/stdenv/linux/default.nix:919
-    #     gnumake = super.gnumake.override { inBootstrap = false; };
-    "gnumake",
+    # Add names here.
 }
 
 nix_ref = {}
